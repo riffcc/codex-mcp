@@ -17,6 +17,4 @@ docs/.vitepress/dist/
 # Desktop Extension build artifacts
 *.dxt
 extension-build/
-CLAUDE.md
-
 sandbox/
