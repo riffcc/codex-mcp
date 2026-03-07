@@ -1,0 +1,102 @@
+{
+  "manifest_version": "0.3",
+  "name": "codex-mcp",
+  "display_name": "Codex MCP",
+  "version": "1.3.11",
+  "description": "Riff Labs fork of cexll/codex-mcp-server, evolving toward fuller Codex automation over MCP with job control, thread workflows, and Codex execution tools.",
+  "author": {
+    "name": "Riff Labs",
+    "url": "https://github.com/riffcc"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/riffcc/codex-mcp.git"
+  },
+  "homepage": "https://github.com/riffcc/codex-mcp#readme",
+  "keywords": [
+    "codex",
+    "openai",
+    "code-generation",
+    "autonomous-coding",
+    "mcp",
+    "cli"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "OPENAI_API_KEY": "",
+        "CODEX_MCP_CWD": "${user_config.working_directory}"
+      }
+    }
+  },
+  "user_config": {
+    "working_directory": {
+      "type": "directory",
+      "title": "Working Directory",
+      "description": "Default project directory for Codex operations",
+      "required": false
+    }
+  },
+  "tools": [
+    {
+      "name": "ask-codex",
+      "description": "Execute Codex with a prompt, optional file references, and model selection"
+    },
+    {
+      "name": "batch-codex",
+      "description": "Process multiple Codex requests in sequence"
+    },
+    {
+      "name": "brainstorm",
+      "description": "Ideation with SCAMPER and design-thinking frameworks"
+    },
+    {
+      "name": "ask-codex-command",
+      "description": "Single-call blocking Codex execution that waits for a final reply"
+    },
+    {
+      "name": "get-codex-job",
+      "description": "Retrieve status and incremental output for async ask-codex jobs with long-polling support"
+    },
+    {
+      "name": "fetch-chunk",
+      "description": "Retrieve paginated responses from change-mode operations"
+    },
+    {
+      "name": "ping",
+      "description": "Test server connectivity"
+    },
+    {
+      "name": "help",
+      "description": "Display Codex CLI help information"
+    },
+    {
+      "name": "version",
+      "description": "Show Codex version information"
+    },
+    {
+      "name": "list-codex-threads",
+      "description": "List active Codex thread bindings managed by the tmux backend"
+    },
+    {
+      "name": "close-codex-thread",
+      "description": "Close the tmux pane bound to a Codex thread"
+    },
+    {
+      "name": "timeout-test",
+      "description": "Run a timed operation to validate timeout prevention behavior"
+    }
+  ],
+  "tools_generated": false,
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

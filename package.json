@@ -1,12 +1,13 @@
 {
-  "name": "@trishchuk/codex-mcp-tool",
-  "version": "2.1.1",
-  "mcpName": "io.github.x51xxx/codex-mcp-tool",
+  "name": "@riffcc/codex-mcp",
+  "version": "1.3.11",
   "description": "MCP server for Codex CLI integration",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "codex-mcp": "dist/index.js"
+    "codex-mcp": "dist/index.js",
+    "codex-news": "dist/cli/codex-news.js",
+    "codex-mcp-http": "dist/http-server.js"
   },
   "scripts": {
     "build": "tsc",
@@ -19,51 +20,43 @@
     "prepublishOnly": "echo '⚠️  Remember to test locally first!' && npm run build",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "start:http": "node dist/http-server.js"
   },
   "keywords": [
     "mcp",
-    "mcp-server",
-    "model-context-protocol",
     "modelcontextprotocol",
     "codex",
-    "codex-cli",
-    "openai",
-    "claude",
-    "cursor",
+    "cli",
     "ai",
     "llm",
-    "cli",
     "server",
     "tool",
-    "code-review",
-    "code-analysis",
-    "refactoring",
-    "automation",
     "typescript",
-    "nodejs"
+    "nodejs",
+    "integration",
+    "automation"
   ],
-  "author": "Taras Trishchuk",
+  "author": "Riff Labs",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/x51xxx/codex-mcp-tool.git"
+    "url": "git+https://github.com/riffcc/codex-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/x51xxx/codex-mcp-tool/issues"
+    "url": "https://github.com/riffcc/codex-mcp/issues"
   },
-  "homepage": "https://github.com/x51xxx/codex-mcp-tool#readme",
+  "homepage": "https://github.com/riffcc/codex-mcp#readme",
   "engines": {
     "node": ">=18.0.0"
   },
   "files": [
     "dist/",
-    "server.json",
     "README.md",
     "LICENSE"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "cross-spawn": "^7.0.6",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"

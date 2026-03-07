@@ -1,181 +1,81 @@
-# Codex MCP Tool
+# Codex MCP
 
-<div align="center">
+`codex-mcp` is Riff Labs' fork and rewrite path of the open source [`cexll/codex-mcp-server`](https://github.com/cexll/codex-mcp-server).
 
-[![GitHub Release](https://img.shields.io/github/v/release/x51xxx/codex-mcp-tool?logo=github&label=GitHub)](https://github.com/x51xxx/codex-mcp-tool/releases)
-[![npm version](https://img.shields.io/npm/v/@trishchuk/codex-mcp-tool)](https://www.npmjs.com/package/@trishchuk/codex-mcp-tool)
-[![npm downloads](https://img.shields.io/npm/dt/@trishchuk/codex-mcp-tool)](https://www.npmjs.com/package/@trishchuk/codex-mcp-tool)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+This repository keeps that project's core idea, exposing Codex through MCP, but the intent here is broader: build a durable MCP layer for full Codex automation, long-running orchestration, job control, and deeper autonomous workflows. It is expected to diverge substantially over time.
 
-</div>
+## Credit
 
-MCP server connecting Claude/Cursor to Codex CLI. Enables code analysis via `@` file references, multi-turn conversations, sandboxed edits, and structured change mode.
+This project is based on the upstream work in `cexll/codex-mcp-server`, which itself credits inspiration from `jamubc/gemini-mcp-tool`. That lineage should remain visible anywhere this fork is published.
 
-## Features
+## What This Fork Is For
 
-- **File Analysis** — Reference files with `@src/`, `@package.json` syntax
-- **Multi-Turn Sessions** — Conversation continuity with workspace isolation
-- **Native Resume** — Uses `codex resume` for context preservation (CLI v0.36.0+)
-- **Local OSS Models** — Run with Ollama or LM Studio via `localProvider`
-- **Web Search** — Research capabilities with `search: true`
-- **Sandbox Mode** — Safe code execution with `--full-auto`
-- **Change Mode** — Structured OLD/NEW patch output for refactoring
-- **Brainstorming** — SCAMPER, design-thinking, lateral thinking frameworks
-- **Health Diagnostics** — CLI version, features, and session monitoring
-- **Cross-Platform** — Windows, macOS, Linux fully supported
+- Running Codex through MCP-compatible clients
+- Supporting asynchronous and blocking Codex execution flows
+- Managing longer-lived Codex jobs and thread-oriented workflows
+- Acting as a foundation for more complete Codex automation over time
 
-## Quick Start
+## Current Shape
 
-```bash
-claude mcp add codex-cli -- npx -y @trishchuk/codex-mcp-tool
-```
+The server currently includes MCP tools for:
 
-**Prerequisites:** Node.js 18+, [Codex CLI](https://github.com/openai/codex) installed and authenticated.
+- `ask-codex`
+- `ask-codex-command`
+- `batch-codex`
+- `brainstorm`
+- `get-codex-job`
+- `fetch-chunk`
+- `list-codex-threads`
+- `close-codex-thread`
+- `ping`
+- `Help`
+- `version`
+- `timeout-test`
 
-### Configuration
+## Local Development
 
-```json
-{
-  "mcpServers": {
-    "codex-cli": {
-      "command": "npx",
-      "args": ["-y", "@trishchuk/codex-mcp-tool"]
-    }
-  }
-}
-```
+Requirements:
 
-**Config locations:** macOS: `~/Library/Application Support/Claude/claude_desktop_config.json` | Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Node.js `>=18`
+- `codex` CLI installed and authenticated
 
-## Usage Examples
-
-```javascript
-// File analysis
-'explain the architecture of @src/';
-'analyze @package.json and list dependencies';
-
-// With specific model
-'use codex with model gpt-5.4 to analyze @algorithm.py';
-
-// Multi-turn conversations (v1.4.0+)
-'ask codex sessionId:"my-project" prompt:"explain @src/"';
-'ask codex sessionId:"my-project" prompt:"now add error handling"';
-
-// Brainstorming
-'brainstorm ways to optimize CI/CD using SCAMPER method';
-
-// Sandbox mode
-'use codex sandbox:true to create and run a Python script';
-
-// Web search
-'ask codex search:true prompt:"latest TypeScript 5.7 features"';
-
-// Local OSS model (Ollama)
-'ask codex localProvider:"ollama" model:"qwen3:8b" prompt:"explain @src/"';
-```
-
-## Tools
-
-| Tool            | Description                                            |
-| --------------- | ------------------------------------------------------ |
-| `ask-codex`     | Execute Codex CLI with file analysis, models, sessions |
-| `brainstorm`    | Generate ideas with SCAMPER, design-thinking, etc.     |
-| `list-sessions` | View/delete/clear conversation sessions                |
-| `health`        | Diagnose CLI installation, version, features           |
-| `ping` / `help` | Test connection, show CLI help                         |
-
-## Models
-
-Default: `gpt-5.4` with fallback → `gpt-5.3-codex` → `gpt-5.2-codex` → `gpt-5.1-codex-max` → `gpt-5.2`
-
-| Model                | Use Case                                 |
-| -------------------- | ---------------------------------------- |
-| `gpt-5.4`            | Latest frontier agentic coding (default) |
-| `gpt-5.3-codex`      | Frontier agentic coding                  |
-| `gpt-5.2-codex`      | Frontier agentic coding                  |
-| `gpt-5.1-codex-max`  | Deep and fast reasoning                  |
-| `gpt-5.1-codex-mini` | Cost-efficient quick tasks               |
-| `gpt-5.2`            | Broad knowledge, reasoning and coding    |
-
-## Key Features
-
-### Session Management (v1.4.0+)
-
-Multi-turn conversations with workspace isolation:
-
-```javascript
-{ "prompt": "analyze code", "sessionId": "my-session" }
-{ "prompt": "continue from here", "sessionId": "my-session" }
-{ "prompt": "start fresh", "sessionId": "my-session", "resetSession": true }
-```
-
-**Environment:**
-
-- `CODEX_SESSION_TTL_MS` - Session TTL (default: 24h)
-- `CODEX_MAX_SESSIONS` - Max sessions (default: 50)
-
-### Local OSS Models (v1.6.0+)
-
-Run with local Ollama or LM Studio instead of OpenAI:
-
-```javascript
-// Ollama
-{ "prompt": "analyze @src/", "localProvider": "ollama", "model": "qwen3:8b" }
-
-// LM Studio
-{ "prompt": "analyze @src/", "localProvider": "lmstudio", "model": "my-model" }
-
-// Auto-select provider
-{ "prompt": "analyze @src/", "oss": true }
-```
-
-**Requirements:** [Ollama](https://ollama.com) running locally with a model that supports tool calling (e.g. `qwen3:8b`).
-
-### Advanced Options
-
-| Parameter              | Description                               |
-| ---------------------- | ----------------------------------------- |
-| `model`                | Model selection                           |
-| `sessionId`            | Enable conversation continuity            |
-| `sandbox`              | Enable `--full-auto` mode                 |
-| `search`               | Enable web search                         |
-| `changeMode`           | Structured OLD/NEW edits                  |
-| `addDirs`              | Additional writable directories           |
-| `toolOutputTokenLimit` | Cap response verbosity (100-10,000)       |
-| `reasoningEffort`      | Reasoning depth: low, medium, high, xhigh |
-| `oss`                  | Use local OSS model provider              |
-| `localProvider`        | Local provider: `lmstudio` or `ollama`    |
-
-## CLI Compatibility
-
-| Version  | Features                         |
-| -------- | -------------------------------- |
-| v0.60.0+ | GPT-5.2 model family             |
-| v0.59.0+ | `--add-dir`, token limits        |
-| v0.52.0+ | Native `--search` flag           |
-| v0.36.0+ | Native `codex resume` (sessions) |
-
-## Troubleshooting
+Install and build:
 
 ```bash
-codex --version    # Check CLI version
-codex login        # Authenticate
+npm install
+npm run build
 ```
 
-Use `health` tool for diagnostics: `'use health verbose:true'`
+Run the stdio server:
 
-## Migration
+```bash
+npm start
+```
 
-**v2.0.x → v2.1.0:** `gpt-5.4` as new default model, updated fallback chain.
+Run the HTTP entrypoint:
 
-**v1.5.x → v1.6.0:** Local OSS model support (`localProvider`, `oss`), `gpt-5.3-codex` default model, `xhigh` reasoning effort.
+```bash
+npm run start:http
+```
 
-**v1.3.x → v1.4.0:** New `sessionId` parameter, `list-sessions`/`health` tools, structured error handling. No breaking changes.
+## Repository Layout
+
+- `src/` TypeScript source
+- `src/tools/` MCP tool definitions
+- `src/utils/` execution and parsing helpers
+- `docs/` project documentation
+- `dist/` compiled output
+
+## Documentation
+
+- Contributor guidance: [docs/contributing.md](docs/contributing.md)
+- Repository maintainer guidance: [AGENTS.md](AGENTS.md)
+- Claude-specific maintainer guidance: [CLAUDE.md](CLAUDE.md)
+
+## Status
+
+This is an actively evolving fork. Expect implementation churn, interface changes, and increasing divergence from upstream as the automation layer becomes more capable.
 
 ## License
 
-MIT License. Not affiliated with OpenAI.
-
----
-
-[Documentation](https://x51xxx.github.io/codex-mcp-tool/) | [Issues](https://github.com/x51xxx/codex-mcp-tool/issues) | Inspired by [jamubc/gemini-mcp-tool](https://github.com/jamubc/gemini-mcp-tool)
+MIT.
