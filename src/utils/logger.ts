@@ -12,19 +12,9 @@ const LEVEL_ORDER: Record<LoggingLevel, number> = {
   emergency: 7,
 };
 
-const LEVEL_CONSOLE_METHOD: Record<LoggingLevel, 'log' | 'warn' | 'error'> = {
-  debug: 'log',
-  info: 'log',
-  notice: 'log',
-  warning: 'warn',
-  error: 'error',
-  critical: 'error',
-  alert: 'error',
-  emergency: 'error',
-};
-
 export class Logger {
-  private static currentLevel: LoggingLevel = 'warning';
+  private static currentLevel: LoggingLevel =
+    (process.env.CODEX_MCP_LOG_LEVEL as LoggingLevel) || 'emergency';
 
   static setLevel(level: LoggingLevel): void {
     this.currentLevel = level;
@@ -44,9 +34,15 @@ export class Logger {
 
   private static emit(level: LoggingLevel, message: string, ...args: any[]): void {
     if (!this.shouldLog(level)) return;
-
-    const consoleMethod = LEVEL_CONSOLE_METHOD[level];
-    console[consoleMethod](this.formatMessage(level, message), ...args);
+    const suffix =
+      args.length > 0
+        ? ' ' +
+          args
+            .map(arg => (arg instanceof Error ? arg.stack || arg.message : String(arg)))
+            .join(' ')
+        : '';
+    // MCP protocol uses stdout for JSON-RPC frames; logs must go to stderr only.
+    process.stderr.write(`${this.formatMessage(level, message)}${suffix}\n`);
   }
 
   static log(message: string, ...args: any[]): void {

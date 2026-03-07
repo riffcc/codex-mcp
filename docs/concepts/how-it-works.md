@@ -71,7 +71,7 @@ Users can invoke the tool through multiple methods:
   "name": "ask-codex",
   "arguments": {
     "prompt": "review @src/**/*.ts",
-    "model": "gpt-5.1-codex-max"
+    "model": "gpt-5"
   }
 }
 ```
@@ -88,7 +88,7 @@ The MCP server receives the standardized tool call:
     "name": "ask-codex",
     "arguments": {
       "prompt": "analyze @src/utils",
-      "model": "gpt-5.1-codex-max",
+      "model": "gpt-5",
       "fullAuto": true
     }
   }
@@ -101,7 +101,7 @@ The server builds the appropriate Codex CLI command:
 
 ```bash
 codex exec \
-  --model gpt-5.1-codex-max \
+  --model gpt-5 \
   --full-auto \
   "analyze @src/utils"
 ```
@@ -285,7 +285,7 @@ All inputs are validated using Zod schemas:
 ```javascript
 const schema = z.object({
   prompt: z.string().min(1),
-  model: z.enum(['gpt-5.1-codex-max', 'gpt-5.1-codex', 'gpt-5.1-codex-mini', 'gpt-5.1']).optional(),
+  model: z.enum(['gpt-5', 'o3', 'o4-mini']).optional(),
   sandbox: z.boolean().optional(),
 });
 ```
@@ -346,7 +346,7 @@ Test connectivity:
 
 ```bash
 # One-time setup
-claude mcp add codex-cli -- npx -y @trishchuk/codex-mcp-tool
+claude mcp add codex-cli -- npx -y @cexll/codex-mcp-server
 
 # Usage
 claude
@@ -360,14 +360,14 @@ const client = new MCPClient({
   servers: {
     'codex-cli': {
       command: 'npx',
-      args: ['-y', '@trishchuk/codex-mcp-tool'],
+      args: ['-y', '@cexll/codex-mcp-server'],
     },
   },
 });
 
 await client.callTool('ask-codex', {
   prompt: 'analyze @src',
-  model: 'gpt-5.1-codex-max',
+  model: 'gpt-5',
 });
 ```
 

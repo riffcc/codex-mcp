@@ -37,9 +37,9 @@ The `ask-codex` tool provides non-interactive execution of Codex commands, suppo
 ### model (optional)
 
 - **Type:** `string`
-- **Default:** `gpt-5.2-codex`
-- **Options:** `"gpt-5.2-codex"`, `"gpt-5.1-codex-max"`, `"gpt-5.1-codex-mini"`, `"gpt-5.2"`
-- **Example:** `"model": "gpt-5.1-codex-mini"`
+- **Default:** Codex CLI default (usually gpt-5)
+- **Options:** `"gpt-5"`, `"o3"`, `"o4-mini"`
+- **Example:** `"model": "o4-mini"`
 
 ### sandbox (optional)
 
@@ -105,18 +105,6 @@ The `ask-codex` tool provides non-interactive execution of Codex commands, suppo
 - **Description:** Bypass all approvals and sandbox (use with extreme caution)
 - **Warning:** Allows unrestricted file system access
 
-### reasoningEffort (optional)
-
-- **Type:** `string`
-- **Options:** `"low"`, `"medium"`, `"high"`, `"max"`
-- **Default:** `"medium"`
-- **Description:** Controls reasoning depth for complex problems
-- **Usage:**
-  - `low` - Fast responses with lighter reasoning
-  - `medium` - Balances speed and reasoning depth (default)
-  - `high` - Greater reasoning depth for complex problems
-  - `max` - Extra high reasoning depth for the most complex tasks
-
 ## File References
 
 ### @ Syntax
@@ -164,7 +152,7 @@ Include files in your prompts using the @ symbol:
   "name": "ask-codex",
   "arguments": {
     "prompt": "create unit tests for @src/utils/calculator.ts",
-    "model": "gpt-5.1-codex",
+    "model": "gpt-5",
     "sandboxMode": "workspace-write"
   }
 }
@@ -190,7 +178,7 @@ Include files in your prompts using the @ symbol:
   "name": "ask-codex",
   "arguments": {
     "prompt": "audit @src/ for security vulnerabilities",
-    "model": "gpt-5.1-codex-max",
+    "model": "gpt-5",
     "sandboxMode": "read-only"
   }
 }
@@ -315,9 +303,9 @@ Be precise to improve performance:
 
 Match model to task complexity:
 
-- **gpt-5.1-codex-mini**: Quick tasks, simple queries
-- **gpt-5.1-codex**: Standard coding tasks
-- **gpt-5.1-codex-max**: Complex multi-file refactoring
+- **o4-mini**: Quick tasks, simple queries
+- **o3**: Complex reasoning, detailed analysis
+- **gpt-5**: Large context, comprehensive refactoring
 
 ### 4. Enable Change Mode for Edits
 
@@ -365,7 +353,7 @@ For consistent file resolution:
 /codex-cli:ask-codex analyze @src/
 
 # With options
-/codex-cli:ask-codex --model gpt-5.1-codex-mini review @src/api/
+/codex-cli:ask-codex --model o4-mini review @src/api/
 ```
 
 ### In Automation Scripts
@@ -374,14 +362,14 @@ For consistent file resolution:
 // Node.js integration
 const { execSync } = require('child_process');
 
-const result = execSync('npx @trishchuk/codex-mcp-tool', {
+const result = execSync('npx @cexll/codex-mcp-server', {
   input: JSON.stringify({
     method: 'tools/call',
     params: {
       name: 'ask-codex',
       arguments: {
         prompt: 'analyze @src/',
-        model: 'gpt-5.1-codex-mini',
+        model: 'o4-mini',
       },
     },
   }),

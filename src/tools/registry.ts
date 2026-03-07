@@ -1,26 +1,13 @@
-import { Tool, Prompt, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'; // Each tool definition includes its metadata, schema, prompt, and execution logic in one place.
+import { Tool, Prompt } from '@modelcontextprotocol/sdk/types.js'; // Each tool definition includes its metadata, schema, prompt, and execution logic in one place.
 
 import { ToolArguments } from '../constants.js';
 import { ZodTypeAny, ZodError } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
-export interface StructuredToolResult {
-  text: string;
-  structuredContent: Record<string, unknown>;
-}
-
-export type ToolExecuteResult = string | StructuredToolResult;
-
 export interface UnifiedTool {
   name: string;
   description: string;
   zodSchema: ZodTypeAny;
-  annotations?: ToolAnnotations;
-  outputSchema?: {
-    type: 'object';
-    properties?: Record<string, object>;
-    required?: string[];
-  };
 
   prompt?: {
     description: string;
@@ -31,10 +18,7 @@ export interface UnifiedTool {
     }>;
   };
 
-  execute: (
-    args: ToolArguments,
-    onProgress?: (newOutput: string) => void
-  ) => Promise<ToolExecuteResult>;
+  execute: (args: ToolArguments, onProgress?: (newOutput: string) => void) => Promise<string>;
   category?: 'simple' | 'utility' | 'codex';
 }
 
@@ -55,14 +39,11 @@ export function getToolDefinitions(): Tool[] {
       required: def.required || [],
     };
 
-    const toolDef: any = {
+    return {
       name: tool.name,
       description: tool.description,
       inputSchema,
     };
-    if (tool.annotations) toolDef.annotations = tool.annotations;
-    if (tool.outputSchema) toolDef.outputSchema = tool.outputSchema;
-    return toolDef;
   });
 }
 
@@ -97,7 +78,7 @@ export async function executeTool(
   toolName: string,
   args: ToolArguments,
   onProgress?: (newOutput: string) => void
-): Promise<ToolExecuteResult> {
+): Promise<string> {
   const tool = toolRegistry.find(t => t.name === toolName);
   if (!tool) {
     throw new Error(`Unknown tool: ${toolName}`);

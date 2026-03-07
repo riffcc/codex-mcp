@@ -1,19 +1,16 @@
 import { z } from 'zod';
 import { UnifiedTool } from './registry.js';
-import { executeCodexCLI, executeCodex, CodexExecutionResult } from '../utils/codexExecutor.js';
+import { executeCodexSession } from '../utils/codexExecutor.js';
 import { processChangeModeOutput } from '../utils/changeModeRunner.js';
 import { formatCodexResponseForMCP } from '../utils/outputParser.js';
 import { MODELS, APPROVAL_POLICIES, ERROR_MESSAGES } from '../constants.js';
-import { createCodexError, formatErrorForUser } from '../utils/errorTypes.js';
 import {
-  getOrCreateSession,
-  saveSession,
-  getCodexConversationId,
-  setCodexConversationId,
-  parseConversationIdFromOutput,
-  deleteSession,
-} from '../utils/sessionStorage.js';
-import { resolveWorkingDirectory } from '../utils/workingDirResolver.js';
+  createJob,
+  getMostRecentThreadId,
+  recordCompletedSessionThread,
+  setJobThreadId,
+  startJob,
+} from '../utils/jobManager.js';
 
 const askCodexArgsSchema = z.object({
   prompt: z
@@ -23,14 +20,11 @@ const askCodexArgsSchema = z.object({
   model: z
     .string()
     .optional()
-    .describe(`Model: ${Object.values(MODELS).join(', ')}. Default: gpt-5.4`),
-  sandbox: z
+    .describe(`Model: ${Object.values(MODELS).join(', ')}. Default: gpt-5.3-codex`),
+  async: z
     .boolean()
-    .default(false)
-    .describe(
-      'Quick automation mode: enables workspace-write + on-failure approval. Alias for fullAuto.'
-    ),
-  fullAuto: z.boolean().optional().describe('Full automation mode'),
+    .default(true)
+    .describe('Run asynchronously and return a jobId immediately (default: true)'),
   approvalPolicy: z
     .enum(['never', 'on-request', 'on-failure', 'untrusted'])
     .optional()
@@ -43,9 +37,13 @@ const askCodexArgsSchema = z.object({
     .enum(['read-only', 'workspace-write', 'danger-full-access'])
     .optional()
     .describe('Access: read-only, workspace-write, danger-full-access'),
-  yolo: z.boolean().optional().describe('⚠️ Bypass all safety (dangerous)'),
   cd: z.string().optional().describe('Working directory'),
   workingDir: z.string().optional().describe('Working directory for execution'),
+  threadId: z.string().optional().describe('Continue an existing Codex thread (uses codex-reply)'),
+  resume: z
+    .enum(['none', 'recent'])
+    .default('none')
+    .describe('Resume behavior when threadId is omitted: "none" (default) or "recent"'),
   changeMode: z
     .boolean()
     .default(false)
@@ -70,7 +68,6 @@ const askCodexArgsSchema = z.object({
     .optional()
     .describe("Configuration overrides as 'key=value' string or object"),
   profile: z.string().optional().describe('Configuration profile to use from ~/.codex/config.toml'),
-  timeout: z.number().optional().describe('Maximum execution time in milliseconds (optional)'),
   includeThinking: z
     .boolean()
     .default(true)
@@ -80,19 +77,13 @@ const askCodexArgsSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      'Enable web search using native --search flag (v0.52.0+). Requires network access - automatically sets sandbox to workspace-write if not specified.'
+      'Enable web search by activating web_search_request feature flag. Requires network access - automatically sets sandbox to workspace-write if not specified.'
     ),
   oss: z
     .boolean()
     .optional()
     .describe(
       'Use local Ollama server (convenience for -c model_provider=oss). Requires Ollama running locally. Automatically sets sandbox to workspace-write if not specified.'
-    ),
-  localProvider: z
-    .enum(['lmstudio', 'ollama'])
-    .optional()
-    .describe(
-      'Specify which local provider to use (lmstudio or ollama). Automatically enables --oss if not set. If omitted with --oss, uses config default or shows selection.'
     ),
   enableFeatures: z
     .array(z.string())
@@ -102,69 +93,17 @@ const askCodexArgsSchema = z.object({
     .array(z.string())
     .optional()
     .describe('Disable feature flags (repeatable). Equivalent to -c features.<name>=false'),
-  // New parameters (v1.3.0+)
-  addDirs: z
-    .array(z.string())
+  mcpServers: z
+    .record(z.any())
     .optional()
-    .describe(
-      'Additional writable directories beyond workspace (e.g., ["/tmp", "/var/log"]). Useful for monorepos and multi-directory projects.'
-    ),
-  toolOutputTokenLimit: z
-    .number()
-    .min(100)
-    .max(10000)
-    .optional()
-    .describe('Maximum tokens for tool outputs (100-10,000). Controls response verbosity.'),
-  reasoningEffort: z
-    .enum(['low', 'medium', 'high', 'xhigh'])
-    .optional()
-    .describe(
-      'Reasoning depth level: low (fast), medium (default), high (complex), xhigh (extra deep)'
-    ),
-  // Session management (v1.4.0+)
-  sessionId: z
-    .string()
-    .optional()
-    .describe('Session ID for conversation continuity. Enables native Codex resume.'),
-  resetSession: z
-    .boolean()
-    .optional()
-    .describe('Clear session context before execution. Starts fresh conversation.'),
-  // New parameters (v2.0.0)
-  outputSchema: z
-    .union([z.string(), z.record(z.any())])
-    .optional()
-    .describe('JSON Schema path or inline schema to constrain output format (Codex CLI v0.95.0+)'),
-  personality: z
-    .enum(['pragmatic', 'friendly'])
-    .optional()
-    .describe(
-      'Communication style: pragmatic (concise, machine-friendly) or friendly (conversational). Codex CLI v0.94.0+'
-    ),
-  skipGitRepoCheck: z
-    .boolean()
-    .optional()
-    .describe(
-      'Skip git repository validation. Useful for non-git directories (Codex CLI v0.75.0+)'
-    ),
-  outputLastMessage: z
-    .string()
-    .optional()
-    .describe(
-      'Write final Codex message to file path. Useful for CI/CD result capture (Codex CLI v0.95.0+)'
-    ),
+    .describe('Additional MCP servers to inject into Codex config as mcp_servers'),
 });
 
 export const askCodexTool: UnifiedTool = {
   name: 'ask-codex',
   description:
-    'Execute Codex CLI with file analysis (@syntax), skills ($syntax), model selection, and safety controls. Supports changeMode.',
+    'Execute Codex CLI with file analysis (@syntax), model selection, and safety controls. Supports changeMode.',
   zodSchema: askCodexArgsSchema,
-  annotations: {
-    readOnlyHint: false,
-    destructiveHint: true,
-    openWorldHint: true,
-  },
   prompt: {
     description: 'Execute Codex CLI with optional changeMode',
   },
@@ -173,38 +112,33 @@ export const askCodexTool: UnifiedTool = {
     const {
       prompt,
       model,
-      sandbox,
-      fullAuto,
+      async: asyncMode,
       approvalPolicy,
       approval,
       sandboxMode,
-      yolo,
       cd,
       workingDir,
+      threadId,
+      resume,
       changeMode,
       chunkIndex,
       chunkCacheKey,
       image,
       config,
       profile,
-      timeout,
       includeThinking,
       includeMetadata,
       search,
       oss,
       enableFeatures,
       disableFeatures,
-      addDirs,
-      toolOutputTokenLimit,
-      reasoningEffort,
-      sessionId,
-      resetSession,
-      localProvider,
-      outputSchema,
-      personality,
-      skipGitRepoCheck,
-      outputLastMessage,
+      mcpServers,
     } = args;
+    const effectiveModel = ((model as string | undefined) || MODELS.GPT5_CODEX) as string;
+    const explicitThreadId =
+      typeof threadId === 'string' && threadId.trim().length > 0 ? threadId.trim() : undefined;
+    const effectiveThreadId =
+      explicitThreadId || (resume === 'recent' ? getMostRecentThreadId() : undefined);
 
     if (!prompt?.trim()) {
       throw new Error(ERROR_MESSAGES.NO_PROMPT_PROVIDED);
@@ -218,112 +152,206 @@ export const askCodexTool: UnifiedTool = {
       });
     }
 
-    // Session management (v1.4.0+)
-    let codexConversationId: string | undefined;
-    let activeSessionId: string | undefined;
+    if (asyncMode) {
+      const job = createJob({
+        tool: 'ask-codex',
+        model: effectiveModel,
+        ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
+      });
 
-    if (sessionId) {
-      // Handle session reset
-      if (resetSession) {
-        deleteSession(sessionId as string);
-      } else {
-        // Try to get existing Codex conversation ID for resume
-        codexConversationId = getCodexConversationId(sessionId as string);
+      startJob(job.id, async onUpdate => {
+        const session = await executeCodexSession(
+          prompt as string,
+          {
+            threadId: effectiveThreadId,
+            model: effectiveModel,
+            approvalPolicy: approvalPolicy as any,
+            approval: approval as string,
+            sandboxMode: sandboxMode as any,
+            cd: cd as string,
+            workingDir: workingDir as string,
+            image,
+            config,
+            profile: profile as string,
+            search: search as boolean,
+            oss: oss as boolean,
+            enableFeatures: enableFeatures as string[],
+            disableFeatures: disableFeatures as string[],
+            mcpServers: mcpServers as Record<string, unknown>,
+          },
+          onUpdate
+        );
+        setJobThreadId(job.id, session.threadId);
+
+        if (changeMode) {
+          return {
+            result: await processChangeModeOutput(session.content, {
+              chunkIndex: args.chunkIndex as number | undefined,
+              prompt: prompt as string,
+            }),
+            threadId: session.threadId,
+          };
+        }
+
+        return {
+          result: formatCodexResponseForMCP(
+            session.content,
+            includeThinking as boolean,
+            includeMetadata as boolean
+          ),
+          threadId: session.threadId,
+        };
+      });
+
+      const asyncLines = [
+        '✅ Async job started',
+        `jobId: ${job.id}`,
+        'status: queued',
+      ];
+      if (explicitThreadId) {
+        asyncLines.push(`threadId: ${effectiveThreadId}`);
+      } else if (resume === 'recent' && effectiveThreadId) {
+        asyncLines.push(`threadId: ${effectiveThreadId}`);
+        asyncLines.push('threadSource: most-recent-job');
       }
-      activeSessionId = sessionId as string;
-    }
-
-    // Resolve working directory for session
-    const resolvedWorkingDir = resolveWorkingDirectory({
-      workingDir: (workingDir || cd) as string,
-      prompt: prompt as string,
-    });
-
-    // Get or create session if sessionId provided
-    if (activeSessionId && resolvedWorkingDir) {
-      const session = getOrCreateSession(resolvedWorkingDir, activeSessionId);
-      activeSessionId = session.sessionId;
-      if (!codexConversationId) {
-        codexConversationId = session.codexConversationId;
-      }
+      asyncLines.push(
+        '',
+        'Use get-codex-job with:',
+        `- jobId: ${job.id}`,
+        '- sinceSeq: 0',
+        '- waitMs: <milliseconds> (optional long-poll)'
+      );
+      return asyncLines.join('\n');
     }
 
     try {
       // Use enhanced executeCodex for better feature support
-      const result = await executeCodex(
+      const session = await executeCodexSession(
         prompt as string,
         {
-          model: model as string,
-          fullAuto: Boolean(fullAuto ?? sandbox),
+          threadId: effectiveThreadId,
+          model: effectiveModel,
           approvalPolicy: approvalPolicy as any,
           approval: approval as string,
           sandboxMode: sandboxMode as any,
-          yolo: Boolean(yolo),
           cd: cd as string,
           workingDir: workingDir as string,
           image,
           config,
           profile: profile as string,
-          timeout: timeout as number,
           search: search as boolean,
           oss: oss as boolean,
-          localProvider: localProvider as 'lmstudio' | 'ollama' | undefined,
           enableFeatures: enableFeatures as string[],
           disableFeatures: disableFeatures as string[],
-          addDirs: addDirs as string[],
-          toolOutputTokenLimit: toolOutputTokenLimit as number,
-          reasoningEffort: reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined,
-          codexConversationId, // Pass conversation ID for resume
-          changeMode: Boolean(changeMode), // Pass changeMode for format instructions
-          outputSchema,
-          personality: personality as 'pragmatic' | 'friendly' | undefined,
-          skipGitRepoCheck: Boolean(skipGitRepoCheck),
-          outputLastMessage: outputLastMessage as string | undefined,
+          mcpServers: mcpServers as Record<string, unknown>,
         },
         onProgress
       );
 
-      // Parse and store conversation ID from response for future resume
-      // Conversation ID may be in stdout OR stderr - check both
-      if (activeSessionId) {
-        const combinedOutput = `${result.output}\n${result.stderr}`;
-        const newConversationId = parseConversationIdFromOutput(combinedOutput);
-        if (newConversationId) {
-          setCodexConversationId(activeSessionId, newConversationId);
-        }
-
-        // Update session with latest prompt/response
-        saveSession({
-          sessionId: activeSessionId,
-          lastPrompt: prompt as string,
-          lastResponse: result.output.substring(0, 1000), // Store truncated response
-          model: model as string,
-          workingDir: resolvedWorkingDir,
-        });
-      }
-
       if (changeMode) {
-        return processChangeModeOutput(result.output, {
+        return processChangeModeOutput(session.content, {
           chunkIndex: args.chunkIndex as number | undefined,
           prompt: prompt as string,
         });
       }
 
       // Format response with enhanced output parsing
-      return formatCodexResponseForMCP(
-        result.output,
+      const formatted = formatCodexResponseForMCP(
+        session.content,
         includeThinking as boolean,
         includeMetadata as boolean
       );
+      if (session.threadId) {
+        recordCompletedSessionThread(session.threadId, {
+          tool: 'ask-codex',
+          mode: 'sync',
+          model: effectiveModel,
+        });
+        const sourceLine =
+          explicitThreadId || !effectiveThreadId || resume !== 'recent'
+            ? ''
+            : '\nthreadSource: most-recent-job';
+        return `${formatted}\n\nthreadId: ${session.threadId}${sourceLine}`;
+      }
+      return formatted;
     } catch (error) {
-      // Use structured error handling
-      const codexError = createCodexError(error instanceof Error ? error : String(error), {
-        sessionId: activeSessionId,
-        model: model as string,
-        workingDir: resolvedWorkingDir,
-      });
+      const errorMessage = error instanceof Error ? error.message : String(error);
 
-      return `❌ ${formatErrorForUser(codexError)}`;
+      // Enhanced error handling with helpful context
+      if (errorMessage.includes('not found') || errorMessage.includes('command not found')) {
+        return `❌ **Codex CLI Not Found**: ${ERROR_MESSAGES.CODEX_NOT_FOUND}
+
+**Quick Fix:**
+\`\`\`bash
+npm install -g @openai/codex
+\`\`\`
+
+**Verification:** Run \`codex --version\` to confirm installation.`;
+      }
+
+      if (errorMessage.includes('authentication') || errorMessage.includes('unauthorized')) {
+        return `❌ **Authentication Failed**: ${ERROR_MESSAGES.AUTHENTICATION_FAILED}
+
+**Setup Options:**
+1. **API Key:** \`export OPENAI_API_KEY=your-key\`
+2. **Login:** \`codex login\` (requires ChatGPT subscription)
+
+**Troubleshooting:** Verify key has Codex access in OpenAI dashboard.`;
+      }
+
+      if (errorMessage.includes('quota') || errorMessage.includes('rate limit')) {
+        return `❌ **Usage Limit Reached**: ${ERROR_MESSAGES.QUOTA_EXCEEDED}
+
+**Solutions:**
+1. Wait and retry - rate limits reset periodically
+2. Check quota in OpenAI dashboard`;
+      }
+
+      if (errorMessage.includes('sandbox') || errorMessage.includes('permission')) {
+        // Enhanced debugging information
+        const debugInfo = [
+          `**Current Configuration:**`,
+          `- sandboxMode: ${sandboxMode}`,
+          `- approvalPolicy: ${approvalPolicy}`,
+          `- search: ${search}`,
+          `- oss: ${oss}`
+        ].join('\n');
+
+        return `❌ **Permission Error**: ${ERROR_MESSAGES.SANDBOX_VIOLATION}
+
+${debugInfo}
+
+**Root Cause:**
+This error typically occurs when:
+1. \`approvalPolicy\` is set without \`sandboxMode\` (now auto-fixed in v1.2+)
+2. Explicit \`sandboxMode: "read-only"\` blocks file modifications
+3. Codex CLI defaults to restrictive permissions
+
+**Solutions:**
+
+**Option A - Explicit Control (Recommended):**
+\`\`\`json
+{
+  "approvalPolicy": "on-failure",
+  "sandboxMode": "workspace-write",
+  "model": "gpt-5.3-codex",
+  "prompt": "your task..."
+}
+\`\`\`
+
+**Sandbox Modes:**
+- \`read-only\`: Analysis only, no modifications
+- \`workspace-write\`: Can edit files in workspace (safe for most tasks)
+- \`danger-full-access\`: Full system access (use with caution)`;
+      }
+
+      // Generic error with context
+      return `❌ **Codex Execution Error**: ${errorMessage}
+
+**Debug Steps:**
+1. Verify Codex CLI: \`codex --version\`
+2. Check authentication: \`codex login\`
+3. Try simpler query first`;
     }
   },
 };

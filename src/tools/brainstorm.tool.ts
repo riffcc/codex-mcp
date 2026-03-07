@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { UnifiedTool } from './registry.js';
 import { Logger } from '../utils/logger.js';
 import { executeCodexCLI } from '../utils/codexExecutor.js';
-import { MODELS } from '../constants.js';
 
 function buildBrainstormPrompt(config: {
   prompt: string;
@@ -108,7 +107,9 @@ const brainstormArgsSchema = z.object({
   model: z
     .string()
     .optional()
-    .describe(`Model: ${Object.values(MODELS).join(', ')}. Default: gpt-5.4`),
+    .describe(
+      'Model: gpt-5.3-codex (default), gpt-5, o3, o4-mini, codex-1, codex-mini-latest, gpt-4.1'
+    ),
   approvalPolicy: z
     .enum(['never', 'on-request', 'on-failure', 'untrusted'])
     .optional()
@@ -117,8 +118,6 @@ const brainstormArgsSchema = z.object({
     .enum(['read-only', 'workspace-write', 'danger-full-access'])
     .optional()
     .describe('Access: read-only, workspace-write, danger-full-access'),
-  fullAuto: z.boolean().optional().describe('Full automation mode'),
-  yolo: z.boolean().optional().describe('⚠️ Bypass all safety (dangerous)'),
   cd: z.string().optional().describe('Working directory'),
   methodology: z
     .enum(['divergent', 'convergent', 'scamper', 'design-thinking', 'lateral', 'auto'])
@@ -144,24 +143,8 @@ const brainstormArgsSchema = z.object({
     .optional()
     .describe('Enable web search for research (activates web_search_request feature)'),
   oss: z.boolean().optional().describe('Use local Ollama server'),
-  localProvider: z
-    .enum(['lmstudio', 'ollama'])
-    .optional()
-    .describe(
-      'Specify which local provider to use (lmstudio or ollama). Automatically enables --oss if not set.'
-    ),
   enableFeatures: z.array(z.string()).optional().describe('Enable feature flags'),
   disableFeatures: z.array(z.string()).optional().describe('Disable feature flags'),
-  reasoningEffort: z
-    .enum(['low', 'medium', 'high', 'xhigh'])
-    .optional()
-    .describe('Reasoning depth: low (fast), medium (default), high (complex), xhigh (extra deep)'),
-  personality: z
-    .enum(['pragmatic', 'friendly'])
-    .optional()
-    .describe(
-      'Communication style: pragmatic (concise, machine-friendly) or friendly (conversational). Codex CLI v0.94.0+'
-    ),
 });
 
 export const brainstormTool: UnifiedTool = {
@@ -169,10 +152,6 @@ export const brainstormTool: UnifiedTool = {
   description:
     'Generate creative ideas using structured frameworks with domain context and feasibility analysis.',
   zodSchema: brainstormArgsSchema,
-  annotations: {
-    readOnlyHint: false,
-    openWorldHint: true,
-  },
   prompt: {
     description: 'Create structured brainstorming with chosen methodology and analysis',
   },
@@ -183,8 +162,6 @@ export const brainstormTool: UnifiedTool = {
       model,
       approvalPolicy,
       sandboxMode,
-      fullAuto,
-      yolo,
       cd,
       methodology = 'auto',
       domain,
@@ -194,11 +171,8 @@ export const brainstormTool: UnifiedTool = {
       includeAnalysis = true,
       search,
       oss,
-      localProvider,
       enableFeatures,
       disableFeatures,
-      reasoningEffort,
-      personality,
     } = args;
 
     if (!prompt?.trim()) {
@@ -227,18 +201,13 @@ export const brainstormTool: UnifiedTool = {
       enhancedPrompt,
       {
         model: model as string | undefined,
-        fullAuto: Boolean(fullAuto),
         approvalPolicy: approvalPolicy as any,
         sandboxMode: sandboxMode as any,
-        yolo: Boolean(yolo),
         cd: cd as string | undefined,
         search: search as boolean,
         oss: oss as boolean,
-        localProvider: localProvider as 'lmstudio' | 'ollama' | undefined,
         enableFeatures: enableFeatures as string[],
         disableFeatures: disableFeatures as string[],
-        reasoningEffort: reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined,
-        personality: personality as 'pragmatic' | 'friendly' | undefined,
       },
       onProgress
     );

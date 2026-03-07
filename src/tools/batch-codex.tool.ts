@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { UnifiedTool, StructuredToolResult } from './registry.js';
+import { UnifiedTool } from './registry.js';
 import { executeCodex } from '../utils/codexExecutor.js';
 import { ERROR_MESSAGES, STATUS_MESSAGES, MODELS, SANDBOX_MODES } from '../constants.js';
 
@@ -22,7 +22,6 @@ const batchCodexArgsSchema = z.object({
     .describe(`Sandbox mode: ${Object.values(SANDBOX_MODES).join(', ')}`),
   parallel: z.boolean().default(false).describe('Execute tasks in parallel (experimental)'),
   stopOnError: z.boolean().default(true).describe('Stop execution if any task fails'),
-  timeout: z.number().optional().describe('Maximum execution time per task in milliseconds'),
   workingDir: z.string().optional().describe('Working directory for execution'),
   search: z
     .boolean()
@@ -38,22 +37,6 @@ export const batchCodexTool: UnifiedTool = {
   description:
     'Delegate multiple atomic tasks to Codex for batch processing. Ideal for repetitive operations, mass refactoring, and automated code transformations',
   zodSchema: batchCodexArgsSchema,
-  annotations: {
-    readOnlyHint: false,
-    destructiveHint: true,
-    openWorldHint: true,
-  },
-  outputSchema: {
-    type: 'object',
-    properties: {
-      total: { type: 'number' },
-      successful: { type: 'number' },
-      failed: { type: 'number' },
-      skipped: { type: 'number' },
-      results: { type: 'array' },
-    },
-    required: ['total', 'successful', 'failed', 'skipped', 'results'],
-  },
   prompt: {
     description: 'Execute multiple atomic Codex tasks in batch mode for efficient automation',
   },
@@ -65,7 +48,6 @@ export const batchCodexTool: UnifiedTool = {
       sandbox,
       parallel,
       stopOnError,
-      timeout,
       workingDir,
       search,
       oss,
@@ -104,24 +86,14 @@ export const batchCodexTool: UnifiedTool = {
       onProgress(`🚀 Starting batch execution of ${sortedTasks.length} tasks...`);
     }
 
-    // Execute tasks sequentially
-    // TODO: Implement parallel execution when parallel flag is true
-    for (let i = 0; i < sortedTasks.length; i++) {
-      const task = sortedTasks[i];
+    const executeSingleTask = async (
+      task: { task: string; target?: string; priority: string },
+      taskIndex: number
+    ) => {
       const taskPrompt = task.target ? `${task.task} in ${task.target}` : task.task;
 
       if (onProgress) {
-        onProgress(`\n[${i + 1}/${sortedTasks.length}] Executing: ${taskPrompt}`);
-      }
-
-      // Skip remaining tasks if stopOnError is true and we have failures
-      if (stopOnError && failedCount > 0) {
-        results.push({
-          task: taskPrompt,
-          status: 'skipped',
-          error: 'Skipped due to previous failure',
-        });
-        continue;
+        onProgress(`\n[${taskIndex + 1}/${sortedTasks.length}] Executing: ${taskPrompt}`);
       }
 
       try {
@@ -130,38 +102,98 @@ export const batchCodexTool: UnifiedTool = {
           {
             model: model as string,
             sandboxMode: sandbox as any,
-            timeout: timeout as number,
             workingDir: workingDir as string,
             search: search as boolean,
             oss: oss as boolean,
             enableFeatures: enableFeatures as string[],
             disableFeatures: disableFeatures as string[],
           },
-          undefined // No progress for individual tasks to keep output clean
+          undefined
         );
 
-        results.push({
-          task: taskPrompt,
-          status: 'success',
-          output: result.output.substring(0, 500), // Truncate for summary
-        });
         successCount++;
-
         if (onProgress) {
           onProgress(`✅ Completed: ${task.task}`);
         }
+        return {
+          task: taskPrompt,
+          status: 'success' as const,
+          output: result.substring(0, 500),
+        };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        results.push({
-          task: taskPrompt,
-          status: 'failed',
-          error: errorMessage,
-        });
         failedCount++;
-
         if (onProgress) {
           onProgress(`❌ Failed: ${task.task} - ${errorMessage}`);
         }
+        return {
+          task: taskPrompt,
+          status: 'failed' as const,
+          error: errorMessage,
+        };
+      }
+    };
+
+    if (!parallel) {
+      for (let i = 0; i < sortedTasks.length; i++) {
+        const task = sortedTasks[i];
+        const taskPrompt = task.target ? `${task.task} in ${task.target}` : task.task;
+
+        if (stopOnError && failedCount > 0) {
+          results.push({
+            task: taskPrompt,
+            status: 'skipped',
+            error: 'Skipped due to previous failure',
+          });
+          continue;
+        }
+
+        results.push(await executeSingleTask(task, i));
+      }
+    } else {
+      if (onProgress) {
+        onProgress('⚡ Parallel mode enabled: executing tasks by priority group.');
+      }
+
+      const grouped = {
+        high: [] as Array<{ task: string; target?: string; priority: string; index: number }>,
+        normal: [] as Array<{ task: string; target?: string; priority: string; index: number }>,
+        low: [] as Array<{ task: string; target?: string; priority: string; index: number }>,
+      };
+
+      for (let i = 0; i < sortedTasks.length; i++) {
+        const task = sortedTasks[i];
+        const bucket = task.priority as keyof typeof grouped;
+        grouped[bucket].push({ ...task, index: i });
+      }
+
+      const order: Array<keyof typeof grouped> = ['high', 'normal', 'low'];
+      for (const priority of order) {
+        const tasksInPriority = grouped[priority];
+        if (tasksInPriority.length === 0) continue;
+
+        if (stopOnError && failedCount > 0) {
+          for (const task of tasksInPriority) {
+            const taskPrompt = task.target ? `${task.task} in ${task.target}` : task.task;
+            results.push({
+              task: taskPrompt,
+              status: 'skipped',
+              error: 'Skipped due to previous failure',
+            });
+          }
+          continue;
+        }
+
+        if (onProgress) {
+          onProgress(
+            `\n⚙️ Running ${tasksInPriority.length} ${priority}-priority task(s) in parallel...`
+          );
+        }
+
+        const parallelResults = await Promise.all(
+          tasksInPriority.map(task => executeSingleTask(task, task.index))
+        );
+        results.push(...parallelResults);
       }
     }
 
@@ -188,15 +220,6 @@ export const batchCodexTool: UnifiedTool = {
       throw new Error(`All ${failedCount} tasks failed. See report above for details.`);
     }
 
-    return {
-      text: report,
-      structuredContent: {
-        total: sortedTasks.length,
-        successful: successCount,
-        failed: failedCount,
-        skipped: sortedTasks.length - successCount - failedCount,
-        results,
-      },
-    } as StructuredToolResult;
+    return report;
   },
 };

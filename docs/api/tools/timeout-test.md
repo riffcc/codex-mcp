@@ -130,7 +130,7 @@ Before running long tasks:
   "name": "ask-codex",
   "arguments": {
     "prompt": "analyze entire codebase @src/",
-    "model": "gpt-5.1-codex-max"
+    "model": "gpt-5"
   }
 }
 ```
@@ -238,7 +238,7 @@ async function timeoutTest(duration, progress) {
 // If successful, proceed with confidence
 { "name": "ask-codex", "arguments": {
   "prompt": "comprehensive security audit @/**/*",
-  "model": "gpt-5.1-codex-max"
+  "model": "gpt-5"
 }}
 ```
 
@@ -270,7 +270,7 @@ During long tests, monitor:
 # GitHub Actions example
 - name: Test MCP timeout handling
   run: |
-    npx @trishchuk/codex-mcp-tool << EOF
+    npx @cexll/codex-mcp-server << EOF
     {
       "method": "tools/call",
       "params": {

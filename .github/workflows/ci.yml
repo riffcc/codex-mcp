@@ -30,10 +30,10 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        cache: 'yarn'
+        cache: 'npm'
     
     - name: Install dependencies
-      run: yarn install --frozen-lockfile
+      run: npm ci
     
     - name: Lint TypeScript
       run: npm run lint
@@ -75,10 +75,10 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20.x'
-        cache: 'yarn'
+        cache: 'npm'
     
     - name: Install dependencies
-      run: yarn install --frozen-lockfile
+      run: npm ci
     
     - name: Build
       run: npm run build
@@ -111,10 +111,10 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20.x'
-        cache: 'yarn'
+        cache: 'npm'
     
     - name: Install dependencies
-      run: yarn install --frozen-lockfile
+      run: npm ci
     
     - name: Build documentation
       run: npm run docs:build

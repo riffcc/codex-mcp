@@ -6,19 +6,11 @@ In 2021, OpenAI released Codex, an AI system designed to generate code from natu
 
 ### Which models are supported?
 
-We recommend using Codex with gpt-5.3-codex, our latest frontier coding model. The default reasoning level is medium, and you can upgrade to high for complex tasks with the `/model` command.
+We recommend using Codex with GPT-5, our best coding model. The default reasoning level is medium, and you can upgrade to high for complex tasks with the `/model` command.
 
-Available models:
+You can also use older models by using API-based auth and launching codex with the `--model` flag.
 
-- **gpt-5.3-codex** - Default, latest frontier agentic coding
-- **gpt-5.2-codex** - Frontier agentic coding
-- **gpt-5.1-codex-max** - Deep and fast reasoning
-- **gpt-5.1-codex-mini** - Faster, more cost-effective
-- **gpt-5.2** - Broad knowledge, reasoning and coding
-
-You can also use specific models by launching codex with the `--model` flag.
-
-### Why does my model not work for me?
+### Why does `o3` or `o4-mini` not work for me?
 
 It's possible that your [API account needs to be verified](https://help.openai.com/en/articles/10910291-api-organization-verification) in order to start streaming responses and seeing chain of thought summaries from the API. If you're still running into issues, please let us know!
 

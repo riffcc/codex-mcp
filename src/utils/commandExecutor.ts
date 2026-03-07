@@ -19,10 +19,9 @@ export interface RetryOptions {
 
 export interface ExecuteOptions {
   onProgress?: (newOutput: string) => void;
-  timeoutMs?: number;
+  cwd?: string;
   maxOutputBytes?: number;
   retry?: RetryOptions;
-  cwd?: string;
 }
 
 /**
@@ -35,10 +34,8 @@ export async function executeCommandDetailed(
 ): Promise<CommandResult> {
   const {
     onProgress,
-    timeoutMs = 600000,
     maxOutputBytes = 50 * 1024 * 1024, // 50MB default
     retry,
-    cwd,
   } = options;
 
   let attempt = 0;
@@ -48,9 +45,7 @@ export async function executeCommandDetailed(
     attempt++;
     const result = await executeOnce(command, args, {
       onProgress,
-      timeoutMs,
       maxOutputBytes,
-      cwd,
     });
 
     if (result.ok) {
@@ -80,7 +75,7 @@ export async function executeCommandDetailed(
 async function executeOnce(
   command: string,
   args: string[],
-  { onProgress, timeoutMs, maxOutputBytes, cwd }: Omit<ExecuteOptions, 'retry'>
+  { onProgress, maxOutputBytes, cwd }: Omit<ExecuteOptions, 'retry'>
 ): Promise<CommandResult> {
   return new Promise(resolve => {
     const startTime = Date.now();
@@ -88,9 +83,9 @@ async function executeOnce(
 
     const childProcess = spawn(command, args, {
       env: process.env,
-      shell: false,
+      cwd,
+      // cross-spawn automatically handles shell mode and .cmd extensions on Windows
       stdio: ['ignore', 'pipe', 'pipe'],
-      ...(cwd ? { cwd } : {}),
     });
 
     const stdoutChunks: Buffer[] = [];
@@ -98,22 +93,6 @@ async function executeOnce(
     let totalStdoutBytes = 0;
     let isResolved = false;
     let outputExceeded = false;
-
-    // Set up timeout with SIGKILL fallback
-    const timeoutId = setTimeout(() => {
-      if (!isResolved) {
-        childProcess.kill('SIGTERM');
-        Logger.warn(`Process timeout after ${timeoutMs}ms, sending SIGTERM`);
-
-        // Give process 5 seconds to terminate gracefully
-        setTimeout(() => {
-          if (!isResolved) {
-            childProcess.kill('SIGKILL');
-            Logger.error(`Process did not terminate, sending SIGKILL`);
-          }
-        }, 5000);
-      }
-    }, timeoutMs || 600000);
 
     childProcess.stdout?.on('data', (data: Buffer) => {
       // Check output size limit
@@ -142,17 +121,26 @@ async function executeOnce(
     childProcess.on('error', error => {
       if (!isResolved) {
         isResolved = true;
-        clearTimeout(timeoutId);
         Logger.error(`Process error:`, error);
 
         // Check for common errors
         const errorMessage = error.message;
         if ((error as any).code === 'ENOENT') {
+          // Enhanced Windows diagnostics
+          const isWindows = process.platform === 'win32';
+          const diagMessage = isWindows
+            ? `Command '${command}' not found. Windows troubleshooting:\n` +
+              `1. Verify installation: Run 'npm list -g ${command}' in cmd\n` +
+              `2. Check PATH: Ensure npm global bin is in PATH (typically C:\\Users\\[username]\\AppData\\Roaming\\npm)\n` +
+              `3. Restart terminal after installing global packages\n` +
+              `4. Try running as Administrator if permission issues occur`
+            : `Command '${command}' not found. Is it installed and in PATH?`;
+
           resolve({
             ok: false,
             code: null,
             stdout: '',
-            stderr: `Command '${command}' not found. Is it installed and in PATH?`,
+            stderr: diagMessage,
             timedOut: false,
           });
         } else {
@@ -169,11 +157,9 @@ async function executeOnce(
     childProcess.on('close', (code, signal) => {
       if (!isResolved) {
         isResolved = true;
-        clearTimeout(timeoutId);
 
         const stdout = Buffer.concat(stdoutChunks).toString('utf8');
         const stderr = Buffer.concat(stderrChunks).toString('utf8');
-        const timedOut = signal === 'SIGTERM' || signal === 'SIGKILL';
 
         Logger.commandComplete(startTime, code, stdout.length);
 
@@ -183,7 +169,7 @@ async function executeOnce(
           signal: signal || undefined,
           stdout: stdout.trim(),
           stderr: stderr.trim(),
-          timedOut,
+          timedOut: false,
           partialStdout: outputExceeded ? stdout : undefined,
         });
       }
@@ -197,20 +183,16 @@ async function executeOnce(
 export async function executeCommand(
   command: string,
   args: string[],
-  onProgress?: (newOutput: string) => void,
-  timeoutMs: number = 600000
+  onProgress?: (newOutput: string) => void
 ): Promise<string> {
   const result = await executeCommandDetailed(command, args, {
     onProgress,
-    timeoutMs,
   });
 
   if (!result.ok) {
     const errorMessage = result.stderr || 'Unknown error';
     throw new Error(
-      result.timedOut
-        ? `Command timed out after ${timeoutMs}ms`
-        : `Command failed with exit code ${result.code}: ${errorMessage}`
+      `Command failed with exit code ${result.code}: ${errorMessage}`
     );
   }
 

@@ -14,7 +14,7 @@ codex --version
 node --version
 
 # Check npm installation
-npm list -g @trishchuk/codex-mcp-tool
+npm list -g @cexll/codex-mcp-server
 
 # Test MCP connection (in Claude)
 /codex-cli:ping "test"
@@ -41,7 +41,7 @@ npm install -g codex-cli
 codex --version
 ```
 
-#### "Cannot find module '@trishchuk/codex-mcp-tool'"
+#### "Cannot find module '@cexll/codex-mcp-server'"
 
 **Problem:** The MCP tool is not installed correctly.
 
@@ -49,13 +49,13 @@ codex --version
 
 ```bash
 # For Claude Code
-claude mcp add codex-cli -- npx -y @trishchuk/codex-mcp-tool
+claude mcp add codex-cli -- npx -y @cexll/codex-mcp-server
 
 # For global installation
-npm install -g @trishchuk/codex-mcp-tool
+npm install -g @cexll/codex-mcp-server
 
 # Verify installation
-npm list -g @trishchuk/codex-mcp-tool
+npm list -g @cexll/codex-mcp-server
 ```
 
 ### Connection Issues
@@ -73,7 +73,7 @@ npm list -g @trishchuk/codex-mcp-tool
   "mcpServers": {
     "codex-cli": {
       "command": "npx",
-      "args": ["-y", "@trishchuk/codex-mcp-tool"]
+      "args": ["-y", "@cexll/codex-mcp-server"]
     }
   }
 }
@@ -88,7 +88,7 @@ npm list -g @trishchuk/codex-mcp-tool
 
 ```bash
 # Enable debug mode
-DEBUG=codex-mcp:* npx @trishchuk/codex-mcp-tool
+DEBUG=codex-mcp:* npx @cexll/codex-mcp-server
 ```
 
 #### "Authentication failed"
@@ -152,7 +152,7 @@ codex models list
 ```javascript
 {
   "prompt": "your prompt",
-  "model": "gpt-5.1-codex-mini"  // Use available model
+  "model": "o4-mini"  // Use available model
 }
 ```
 
@@ -253,10 +253,47 @@ xcode-select --install
 
 ```bash
 # Fix npm permissions
-sudo npm install -g @trishchuk/codex-mcp-tool --unsafe-perm
+sudo npm install -g @cexll/codex-mcp-server --unsafe-perm
 ```
 
 ### Windows
+
+#### "spawn codex ENOENT" - Command not found (v1.2.3+ Fixed)
+
+**Problem:** Windows reports "Error: spawn codex ENOENT" even though Codex CLI is installed.
+
+**Root Cause:** This was a cross-platform compatibility issue with Node.js spawn on Windows, where `.cmd` extensions were not automatically resolved.
+
+**Fixed in v1.2.3:** Now using `cross-spawn` package for automatic Windows compatibility.
+
+**If still experiencing issues:**
+
+1. **Verify Codex is in PATH:**
+
+```bash
+# In Command Prompt or PowerShell
+where codex
+codex --version
+
+# Check npm global bin path
+npm config get prefix
+```
+
+2. **Ensure npm global bin is in PATH:**
+
+- Typical location: `C:\Users\[username]\AppData\Roaming\npm`
+- Add to System PATH via:
+  - Settings → System → About → Advanced system settings → Environment Variables
+  - Add npm global bin directory to PATH
+
+3. **Restart terminal after PATH changes**
+
+4. **Verify installation:**
+
+```bash
+npm list -g codex-cli
+npm list -g @cexll/codex-mcp-server
+```
 
 #### "EPERM: operation not permitted"
 
@@ -295,12 +332,12 @@ Enable detailed logging for troubleshooting:
 
 ```bash
 # Enable all debug output
-DEBUG=* npx @trishchuk/codex-mcp-tool
+DEBUG=* npx @cexll/codex-mcp-server
 
 # Enable specific modules
-DEBUG=codex-mcp:* npx @trishchuk/codex-mcp-tool
-DEBUG=codex-mcp:executor npx @trishchuk/codex-mcp-tool
-DEBUG=codex-mcp:parser npx @trishchuk/codex-mcp-tool
+DEBUG=codex-mcp:* npx @cexll/codex-mcp-server
+DEBUG=codex-mcp:executor npx @cexll/codex-mcp-server
+DEBUG=codex-mcp:parser npx @cexll/codex-mcp-server
 ```
 
 ### Logging Levels
@@ -323,7 +360,7 @@ DEBUG=codex-mcp:parser npx @trishchuk/codex-mcp-tool
 
 ```javascript
 {
-  "model": "gpt-5.1-codex-mini"  // Faster than GPT-5
+  "model": "o4-mini"  // Faster than GPT-5
 }
 ```
 
@@ -374,7 +411,7 @@ npm --version
 codex --version
 
 # Package information
-npm list -g @trishchuk/codex-mcp-tool
+npm list -g @cexll/codex-mcp-server
 
 # Error logs
 cat ~/.codex/logs/error.log
@@ -408,10 +445,10 @@ Yes, specify different models per request:
 
 ```javascript
 // First request
-{ "prompt": "quick task", "model": "gpt-5.1-codex-mini" }
+{ "prompt": "quick task", "model": "o4-mini" }
 
 // Second request
-{ "prompt": "complex analysis", "model": "gpt-5.1-codex-max" }
+{ "prompt": "complex analysis", "model": "gpt-5" }
 ```
 
 ### How do I handle large codebases?

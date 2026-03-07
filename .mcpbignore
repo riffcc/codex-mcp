@@ -1,0 +1,16 @@
+src/
+docs/
+.github/
+.vscode/
+*.ts
+!dist/**/*.js
+tsconfig.json
+CONTRIBUTING.md
+CHANGELOG.md
+AGENTS.md
+AUDIT-AND-ARCHITECTURE.md
+.mcp.json.example
+.prettierrc
+.prettierignore
+*.tool-results
+codex-mcp-server.mcpb

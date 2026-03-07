@@ -14,7 +14,7 @@ When analyzing large codebases, break down the analysis into manageable chunks:
   "name": "ask-codex",
   "arguments": {
     "prompt": "provide high-level architecture overview of @src/",
-    "model": "gpt-5.1-codex-mini"
+    "model": "o4-mini"
   }
 }
 
@@ -23,7 +23,7 @@ When analyzing large codebases, break down the analysis into manageable chunks:
   "name": "ask-codex",
   "arguments": {
     "prompt": "analyze @src/core/ in detail",
-    "model": "gpt-5.1-codex"
+    "model": "gpt-5"
   }
 }
 
@@ -32,7 +32,7 @@ When analyzing large codebases, break down the analysis into manageable chunks:
   "name": "ask-codex",
   "arguments": {
     "prompt": "map dependencies between @src/core/ and @src/utils/",
-    "model": "gpt-5.1-codex-max"
+    "model": "o3"
   }
 }
 ```
@@ -48,7 +48,7 @@ For very large files or directories:
   "arguments": {
     "prompt": "refactor all TypeScript files in @src/",
     "changeMode": true,
-    "model": "gpt-5.1-codex-max"
+    "model": "gpt-5"
   }
 }
 
@@ -207,7 +207,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Codex MCP
-        run: npm install -g @trishchuk/codex-mcp-tool
+        run: npm install -g @cexll/codex-mcp-server
 
       - name: Security Review
         run: |
@@ -217,11 +217,11 @@ jobs:
               "name": "ask-codex",
               "arguments": {
                 "prompt": "security audit @src/",
-                "model": "gpt-5.1-codex-max",
+                "model": "gpt-5",
                 "sandboxMode": "read-only"
               }
             }
-          }' | npx @trishchuk/codex-mcp-tool
+          }' | npx @cexll/codex-mcp-server
 
       - name: Performance Review
         run: |
@@ -231,10 +231,10 @@ jobs:
               "name": "ask-codex",
               "arguments": {
                 "prompt": "identify performance bottlenecks @src/",
-                "model": "gpt-5.1-codex"
+                "model": "o3"
               }
             }
-          }' | npx @trishchuk/codex-mcp-tool
+          }' | npx @cexll/codex-mcp-server
 ```
 
 ### Scheduled Maintenance
@@ -247,7 +247,7 @@ const weeklyReview = async () => {
   // Identify technical debt
   const debt = await mcp.call('ask-codex', {
     prompt: 'identify technical debt in @src/',
-    model: 'gpt-5.1-codex-max',
+    model: 'gpt-5',
   });
 
   // Generate improvement plan
@@ -272,16 +272,16 @@ Choose the right model for the task:
 const selectModel = task => {
   switch (task.type) {
     case 'quick-analysis':
-      return 'gpt-5.1-codex-mini'; // Fast, cost-effective
+      return 'o4-mini'; // Fast, cost-effective
 
     case 'complex-reasoning':
-      return 'gpt-5.1-codex'; // Advanced reasoning
+      return 'o3'; // Advanced reasoning
 
     case 'large-refactoring':
-      return 'gpt-5.1-codex-max'; // Maximum context
+      return 'gpt-5'; // Maximum context
 
     default:
-      return 'gpt-5.1-codex-mini';
+      return 'o4-mini';
   }
 };
 
@@ -305,7 +305,7 @@ const analyses = await Promise.all(
   modules.map(module =>
     mcp.call('ask-codex', {
       prompt: `analyze @src/${module}/`,
-      model: 'gpt-5.1-codex-mini',
+      model: 'o4-mini',
     })
   )
 );
@@ -314,7 +314,7 @@ const analyses = await Promise.all(
 const summary = await mcp.call('ask-codex', {
   prompt: 'synthesize module analyses into system overview',
   existingContext: analyses.join('\n'),
-  model: 'gpt-5.1-codex-max',
+  model: 'gpt-5',
 });
 ```
 
@@ -345,7 +345,7 @@ class CodexWorkflow {
   async review(path) {
     return mcp.call('ask-codex', {
       prompt: `comprehensive review of @${path}`,
-      model: 'gpt-5.1-codex-max',
+      model: 'gpt-5',
       sandboxMode: 'read-only',
     });
   }
@@ -396,7 +396,7 @@ Implement security-focused reviews:
       - Security misconfigurations
       - Using components with known vulnerabilities
       - Insufficient logging and monitoring`,
-    "model": "gpt-5.1-codex-max",
+    "model": "gpt-5",
     "sandboxMode": "read-only"
   }
 }
@@ -411,7 +411,7 @@ Ensure code meets compliance requirements:
   "name": "ask-codex",
   "arguments": {
     "prompt": "verify @src/ compliance with GDPR, HIPAA, and SOC 2",
-    "model": "gpt-5.1-codex-max",
+    "model": "gpt-5",
     "sandboxMode": "read-only"
   }
 }
@@ -429,7 +429,7 @@ const reproduce = {
   name: 'ask-codex',
   arguments: {
     prompt: 'trace execution path for [error scenario] in @src/',
-    model: 'gpt-5.1-codex',
+    model: 'o3',
   },
 };
 
@@ -438,7 +438,7 @@ const rootCause = {
   name: 'ask-codex',
   arguments: {
     prompt: 'identify root cause of [error] based on trace',
-    model: 'gpt-5.1-codex-max',
+    model: 'gpt-5',
   },
 };
 
