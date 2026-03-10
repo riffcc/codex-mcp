@@ -2,6 +2,7 @@ import { readdir, readFile, rename, rm, writeFile, mkdir } from 'node:fs/promise
 import { isAbsolute, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -22,6 +23,27 @@ function extractTextContent(content) {
   }
   return parts.join('\n').trim();
 }
+
+function compactObservableText(input, maxLen = 500) {
+  if (typeof input !== 'string' || !input.trim()) return '';
+  let text = input.replace(/\r\n/g, '\n').trim();
+  const fence = String.fromCharCode(96).repeat(3);
+  text = text.replace(new RegExp(fence + 'diff([\\s\\S]*?)' + fence, 'gi'), (_m, body) => {
+    const lines = String(body || '').split('\n').filter(Boolean).length;
+    return '[diff block omitted: ' + lines + ' lines]';
+  });
+  text = text.replace(new RegExp('\\*\\*\\* Begin Patch([\\s\\S]*?)\\*\\*\\* End Patch', 'gi'), (_m, body) => {
+    const lines = String(body || '').split('\n').filter(Boolean).length;
+    return '[patch omitted: ' + lines + ' lines]';
+  });
+  text = text.replace(/\n{3,}/g, '\n\n');
+  if (text.length > maxLen) {
+    text = text.slice(0, maxLen) + '...';
+  }
+  return text;
+}
+
+let activeProgressFile = null;
 
 async function appendProgress(filePath, message) {
   const line = '[' + new Date().toISOString() + '] ' + message + '\n';
@@ -49,11 +71,27 @@ async function handleRequest(client, codexToolName, replyToolName, req, progress
   }
 
   await appendProgress(progressFile, 'Calling codex mcp tool: ' + toolName);
-  const result = await client.callTool(
-    { name: toolName, arguments: args },
-    undefined,
-    { timeout: TOOL_TIMEOUT_MS }
-  );
+  activeProgressFile = progressFile;
+  let result;
+  try {
+    result = await client.callTool(
+      { name: toolName, arguments: args },
+      undefined,
+      {
+        timeout: TOOL_TIMEOUT_MS,
+        resetTimeoutOnProgress: true,
+        onprogress: progress => {
+          const current = typeof progress?.progress === 'number' ? progress.progress : '?';
+          const total = typeof progress?.total === 'number' ? progress.total : '?';
+          const message = compactObservableText(progress?.message || '', 240);
+          const suffix = message ? ' - ' + message : '';
+          return appendProgress(progressFile, 'progress ' + current + '/' + total + suffix);
+        }
+      }
+    );
+  } finally {
+    activeProgressFile = null;
+  }
   if (result.isError) {
     const msg = extractTextContent(result.content) || 'codex mcp-server call failed';
     throw new Error(msg);
@@ -73,6 +111,11 @@ async function handleRequest(client, codexToolName, replyToolName, req, progress
       ? structured.threadId
       : req.threadId;
 
+  const contentSummary = compactObservableText(content);
+  if (contentSummary) {
+    await appendProgress(progressFile, 'response ' + contentSummary);
+  }
+
   return { content, threadId };
 }
 
@@ -90,7 +133,8 @@ async function main() {
   await mkdir(responsesDir, { recursive: true });
   await mkdir(progressDir, { recursive: true });
 
-  const configuredCodexCommand = process.env.CODEX_MCP_CODEX_PATH || 'codex';
+  const configuredCodexCommand =
+    process.env.CODEX_MCP_CODEX_PATH || process.env.RIFF_CODEX_BIN || '/home/wings/.local/bin/rolodex';
   const baseCwd = process.env.CODEX_MCP_CWD || process.cwd();
   const codexCommand =
     configuredCodexCommand.includes('/') && !isAbsolute(configuredCodexCommand)
@@ -111,6 +155,20 @@ async function main() {
   );
 
   await client.connect(transport);
+  client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+    if (!activeProgressFile) return;
+    const level = notification?.params?.level || 'info';
+    const data =
+      typeof notification?.params?.data === 'string'
+        ? notification.params.data
+        : JSON.stringify(notification?.params?.data ?? '');
+    const summary = compactObservableText(data, 240);
+    if (!summary) return;
+    return appendProgress(activeProgressFile, 'log/' + level + ' ' + summary);
+  });
+  try {
+    await client.setLoggingLevel('debug', { timeout: 5000 });
+  } catch {}
   const tools = await client.listTools(undefined, { timeout: TOOL_TIMEOUT_MS });
   const codexToolName =
     tools.tools.find(t => t.name === 'codex')?.name ||

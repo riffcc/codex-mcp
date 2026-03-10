@@ -348,6 +348,18 @@ export function getMostRecentThreadId(): string | undefined {
   return latestWithThread?.threadId;
 }
 
+export function getMostRecentJobForThread(threadId: string): AsyncJob | undefined {
+  syncJobsFromDisk();
+  const latestForThread = [...jobs.values()]
+    .filter(job => job.threadId === threadId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  if (!latestForThread) return undefined;
+  if (reconcileStaleRunningJob(latestForThread.id, latestForThread)) {
+    schedulePersist();
+  }
+  return latestForThread;
+}
+
 export function appendJobUpdate(jobId: string, message: string): void {
   const job = jobs.get(jobId);
   if (!job) return;
@@ -366,6 +378,15 @@ export function getJobSnapshot(jobId: string, sinceSeq = 0): JobSnapshot | undef
   const updates = job.updates.filter(u => u.seq > sinceSeq);
   const latestSeq = job.updates.length === 0 ? 0 : job.updates[job.updates.length - 1].seq;
   return { job, updates, latestSeq };
+}
+
+export function getJobSnapshotForThread(
+  threadId: string,
+  sinceSeq = 0
+): JobSnapshot | undefined {
+  const job = getMostRecentJobForThread(threadId);
+  if (!job) return undefined;
+  return getJobSnapshot(job.id, sinceSeq);
 }
 
 export async function waitForJobUpdate(

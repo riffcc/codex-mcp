@@ -10,7 +10,56 @@ import {
   recordCompletedSessionThread,
   setJobThreadId,
   startJob,
+  waitForJobUpdate,
 } from '../utils/jobManager.js';
+
+const SMART_READ_LAYERS = [
+  'raw',
+  'ast',
+  'call_graph',
+  'cfg',
+  'dfg',
+  'pdg',
+  'theory_graph',
+] as const;
+
+function getAsyncStartupWaitMs(): number {
+  const raw = Number(process.env.CODEX_MCP_ASYNC_STARTUP_WAIT_MS || 5000);
+  if (!Number.isFinite(raw) || raw < 0) return 5000;
+  return raw;
+}
+
+function buildSmartReadEditFeedbackPrompt(
+  prompt: string,
+  options: {
+    smartReadLayers?: readonly string[];
+    smartReadMaxFiles?: number;
+    smartReadFocus?: string;
+  }
+): string {
+  const layers = (options.smartReadLayers && options.smartReadLayers.length > 0
+    ? options.smartReadLayers
+    : ['ast', 'call_graph']) as readonly string[];
+  const maxFiles = options.smartReadMaxFiles && options.smartReadMaxFiles > 0
+    ? options.smartReadMaxFiles
+    : 4;
+  const focus = options.smartReadFocus?.trim();
+
+  const instruction = [
+    'When you make edits, immediately inspect the affected code with llm_code_sdk smart_read before finalizing.',
+    'Use smart_read in batch mode against the files you actually changed.',
+    `Use these SmartRead layers: ${layers.join(', ')}.`,
+    `Keep the SmartRead pass focused to the most important ${maxFiles} changed file${maxFiles === 1 ? '' : 's'}.`,
+    focus ? `Bias the SmartRead analysis toward: ${focus}.` : '',
+    'Use the SmartRead results to understand knock-on effects, call relationships, control/data dependencies, and structural impact.',
+    'Return a compact "SmartRead Impact" section in the final answer.',
+    'Do not include raw diffs or patch bodies in that section.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return `${prompt}\n\n[Built-in SmartRead edit feedback]\n${instruction}`;
+}
 
 const askCodexArgsSchema = z.object({
   prompt: z
@@ -20,7 +69,7 @@ const askCodexArgsSchema = z.object({
   model: z
     .string()
     .optional()
-    .describe(`Model: ${Object.values(MODELS).join(', ')}. Default: gpt-5.3-codex`),
+    .describe(`Model: ${Object.values(MODELS).join(', ')}. Default: ${MODELS.GPT5_4}`),
   async: z
     .boolean()
     .default(true)
@@ -97,6 +146,23 @@ const askCodexArgsSchema = z.object({
     .record(z.any())
     .optional()
     .describe('Additional MCP servers to inject into Codex config as mcp_servers'),
+  smartReadLayers: z
+    .array(z.enum(SMART_READ_LAYERS))
+    .optional()
+    .describe(
+      'If set, ask Codex to run llm_code_sdk smart_read on files it changed and include a compact impact summary.'
+    ),
+  smartReadMaxFiles: z
+    .number()
+    .int()
+    .min(1)
+    .max(12)
+    .default(4)
+    .describe('Maximum changed files to inspect with SmartRead when smartReadLayers is enabled'),
+  smartReadFocus: z
+    .string()
+    .optional()
+    .describe('Optional focus for SmartRead impact analysis, e.g. call chain, data flow, or side effects'),
 });
 
 export const askCodexTool: UnifiedTool = {
@@ -133,8 +199,19 @@ export const askCodexTool: UnifiedTool = {
       enableFeatures,
       disableFeatures,
       mcpServers,
+      smartReadLayers,
+      smartReadMaxFiles,
+      smartReadFocus,
     } = args;
-    const effectiveModel = ((model as string | undefined) || MODELS.GPT5_CODEX) as string;
+    const effectiveModel = ((model as string | undefined) || MODELS.GPT5_4) as string;
+    const effectivePrompt =
+      smartReadLayers && (smartReadLayers as string[]).length > 0
+        ? buildSmartReadEditFeedbackPrompt(prompt as string, {
+            smartReadLayers: smartReadLayers as string[],
+            smartReadMaxFiles: smartReadMaxFiles as number,
+            smartReadFocus: smartReadFocus as string | undefined,
+          })
+        : (prompt as string);
     const explicitThreadId =
       typeof threadId === 'string' && threadId.trim().length > 0 ? threadId.trim() : undefined;
     const effectiveThreadId =
@@ -161,7 +238,7 @@ export const askCodexTool: UnifiedTool = {
 
       startJob(job.id, async onUpdate => {
         const session = await executeCodexSession(
-          prompt as string,
+          effectivePrompt,
           {
             threadId: effectiveThreadId,
             model: effectiveModel,
@@ -203,22 +280,56 @@ export const askCodexTool: UnifiedTool = {
         };
       });
 
+      let latestSeq = 0;
+      let currentStatus: 'queued' | 'running' | 'succeeded' | 'failed' = 'queued';
+      let startupThreadId = effectiveThreadId;
+      const startupWaitMs = getAsyncStartupWaitMs();
+
+      if (onProgress && startupWaitMs > 0) {
+        const deadline = Date.now() + startupWaitMs;
+        while (Date.now() < deadline) {
+          const remainingMs = Math.max(0, deadline - Date.now());
+          const snapshot = await waitForJobUpdate(job.id, latestSeq, Math.min(remainingMs, 1500));
+          if (!snapshot) break;
+
+          currentStatus = snapshot.job.status;
+          latestSeq = snapshot.latestSeq;
+          startupThreadId = snapshot.job.threadId || startupThreadId;
+
+          if (snapshot.updates.length > 0) {
+            for (const update of snapshot.updates) {
+              onProgress(`[job ${job.id}][${update.seq}] ${update.message}`);
+            }
+          }
+
+          if (snapshot.job.status === 'succeeded' || snapshot.job.status === 'failed') {
+            break;
+          }
+        }
+      }
+
       const asyncLines = [
         '✅ Async job started',
         `jobId: ${job.id}`,
-        'status: queued',
+        `status: ${currentStatus}`,
       ];
+      if (startupThreadId) {
+        asyncLines.push(`threadId: ${startupThreadId}`);
+      }
       if (explicitThreadId) {
-        asyncLines.push(`threadId: ${effectiveThreadId}`);
-      } else if (resume === 'recent' && effectiveThreadId) {
-        asyncLines.push(`threadId: ${effectiveThreadId}`);
+        // threadId line already included above, keep only the source semantics here
+      } else if (resume === 'recent' && startupThreadId) {
         asyncLines.push('threadSource: most-recent-job');
       }
+      asyncLines.push(`latestSeq: ${latestSeq}`);
       asyncLines.push(
         '',
-        'Use get-codex-job with:',
+        'Agent follow-up:',
+        '- Continue monitoring this work automatically.',
+        '- Resolve state via get-codex-job using jobId or threadId.',
+        'Suggested arguments:',
         `- jobId: ${job.id}`,
-        '- sinceSeq: 0',
+        `- sinceSeq: ${latestSeq}`,
         '- waitMs: <milliseconds> (optional long-poll)'
       );
       return asyncLines.join('\n');
@@ -227,7 +338,7 @@ export const askCodexTool: UnifiedTool = {
     try {
       // Use enhanced executeCodex for better feature support
       const session = await executeCodexSession(
-        prompt as string,
+        effectivePrompt,
         {
           threadId: effectiveThreadId,
           model: effectiveModel,

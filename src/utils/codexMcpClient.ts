@@ -126,7 +126,19 @@ export async function callCodexMcpSession(
       arguments: args,
     },
     undefined,
-    { timeout: INTERNAL_TOOL_TIMEOUT_MS }
+    {
+      timeout: INTERNAL_TOOL_TIMEOUT_MS,
+      resetTimeoutOnProgress: true,
+      onprogress: progress => {
+        const current = typeof progress?.progress === 'number' ? progress.progress : '?';
+        const total = typeof progress?.total === 'number' ? progress.total : '?';
+        const message =
+          typeof progress?.message === 'string' && progress.message.trim()
+            ? ` - ${progress.message.trim()}`
+            : '';
+        onProgress?.(`mcp progress ${current}/${total}${message}`);
+      },
+    }
   );
 
   if (result.isError) {

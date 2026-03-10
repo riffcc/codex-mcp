@@ -26,6 +26,7 @@ export const STATUS_MESSAGES = {
 
 // Models
 export const MODELS = {
+  GPT5_4: 'gpt-5.4',
   GPT5_CODEX: 'gpt-5.3-codex',
   GPT5: 'gpt-5',
   O3: 'o3',
@@ -34,6 +35,18 @@ export const MODELS = {
   CODEX_MINI_LATEST: 'codex-mini-latest',
   GPT_4_1: 'gpt-4.1',
 } as const;
+
+function resolveCodexCommand(): string {
+  return (
+    process.env.CODEX_MCP_CODEX_PATH?.trim() ||
+    process.env.RIFF_CODEX_BIN?.trim() ||
+    '/home/wings/.local/bin/rolodex'
+  );
+}
+
+function resolveDefaultModel(): string {
+  return process.env.CODEX_MCP_DEFAULT_MODEL?.trim() || MODELS.GPT5_4;
+}
 
 // Sandbox modes
 export const SANDBOX_MODES = {
@@ -80,8 +93,8 @@ export const PROTOCOL = {
 export const CLI = {
   // Command names
   COMMANDS: {
-    CODEX: 'codex',
-    CODEX_EXEC: 'codex exec',
+    CODEX: resolveCodexCommand(),
+    CODEX_EXEC: `${resolveCodexCommand()} exec`,
     ECHO: 'echo',
   },
   // Command flags
@@ -106,7 +119,7 @@ export const CLI = {
   },
   // Default values
   DEFAULTS: {
-    MODEL: 'default', // Fallback model used when no specific model is provided
+    MODEL: resolveDefaultModel(),
     BOOLEAN_TRUE: 'true',
     BOOLEAN_FALSE: 'false',
   },

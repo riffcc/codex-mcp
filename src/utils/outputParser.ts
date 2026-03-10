@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'fs';
+import { isAbsolute, resolve } from 'path';
 import { Logger } from './logger.js';
 
 // Codex Output Interface
@@ -20,6 +22,15 @@ export interface CodexOutput {
   timestamps: string[];
   rawOutput: string;
 }
+
+interface SourceReference {
+  path: string;
+  line?: number;
+}
+
+const MAX_EXCERPT_FILES = 4;
+const EXCERPT_RADIUS = 4;
+const EXCERPT_MAX_CHARS = 1600;
 
 export function parseCodexOutput(rawOutput: string): CodexOutput {
   const lines = rawOutput.split('\n');
@@ -139,6 +150,89 @@ function parseMetadata(metadataLines: string[]): any {
   return metadata;
 }
 
+function normalizeRefPath(rawPath: string, workdir?: string): string | undefined {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return undefined;
+  if (isAbsolute(trimmed)) return trimmed;
+  if (workdir) return resolve(workdir, trimmed);
+  return undefined;
+}
+
+function collectSourceReferences(text: string, workdir?: string): SourceReference[] {
+  const refs: SourceReference[] = [];
+  const seen = new Set<string>();
+
+  const addRef = (pathValue?: string, lineValue?: string) => {
+    if (!pathValue) return;
+    const normalizedPath = normalizeRefPath(pathValue, workdir);
+    if (!normalizedPath) return;
+    const line = lineValue ? parseInt(lineValue, 10) : undefined;
+    const key = `${normalizedPath}:${line || 0}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push({ path: normalizedPath, ...(line && line > 0 ? { line } : {}) });
+  };
+
+  const markdownLinkRegex =
+    /\[[^\]]+\]\(((?:\/|\.{1,2}\/)[^)\s:]+(?:\/[^)\s:]*)?)(?::(\d+)(?::\d+)?)?(?:#L(\d+)(?:C\d+)?)?\)/g;
+  for (const match of text.matchAll(markdownLinkRegex)) {
+    addRef(match[1], match[3] || match[2]);
+  }
+
+  const absolutePathRegex =
+    /(?:^|[\s(])((?:\/[^:\s)]+)+\.[A-Za-z0-9._-]+)(?::(\d+)(?::\d+)?)?(?:#L(\d+)(?:C\d+)?)?/g;
+  for (const match of text.matchAll(absolutePathRegex)) {
+    addRef(match[1], match[3] || match[2]);
+  }
+
+  const relativePathRegex =
+    /(?:^|[\s(])((?:\.\.\/|\.\/)[^:\s)]+(?:\/[^:\s)]+)*\.[A-Za-z0-9._-]+)(?::(\d+)(?::\d+)?)?(?:#L(\d+)(?:C\d+)?)?/g;
+  for (const match of text.matchAll(relativePathRegex)) {
+    addRef(match[1], match[3] || match[2]);
+  }
+
+  return refs.slice(0, MAX_EXCERPT_FILES);
+}
+
+function buildSourceExcerpt(ref: SourceReference): string | undefined {
+  if (!existsSync(ref.path)) return undefined;
+
+  let content: string;
+  try {
+    content = readFileSync(ref.path, 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  const lines = content.split('\n');
+  const centerLine = ref.line && ref.line > 0 ? ref.line : 1;
+  const start = Math.max(1, centerLine - EXCERPT_RADIUS);
+  const end = Math.min(lines.length, centerLine + EXCERPT_RADIUS);
+
+  const excerptLines: string[] = [];
+  for (let i = start; i <= end; i++) {
+    excerptLines.push(`${i.toString().padStart(4, ' ')} | ${lines[i - 1]}`);
+  }
+
+  let excerpt = excerptLines.join('\n');
+  if (excerpt.length > EXCERPT_MAX_CHARS) {
+    excerpt = excerpt.slice(0, EXCERPT_MAX_CHARS) + '\n...';
+  }
+
+  const label = ref.line ? `${ref.path}:${ref.line}` : ref.path;
+  return `### ${label}\n\`\`\`\n${excerpt}\n\`\`\``;
+}
+
+function appendAffectedSourceExcerpts(output: CodexOutput, formatted: string): string {
+  const refs = collectSourceReferences(output.response, output.metadata.workdir);
+  if (refs.length === 0) return formatted;
+
+  const excerpts = refs.map(buildSourceExcerpt).filter((value): value is string => !!value);
+  if (excerpts.length === 0) return formatted;
+
+  return `${formatted}\n\n**Affected Source Excerpts:**\n\n${excerpts.join('\n\n')}`;
+}
+
 export function formatCodexResponse(
   output: CodexOutput,
   includeThinking: boolean = true,
@@ -172,7 +266,7 @@ export function formatCodexResponse(
     formatted += `\n\n*Tokens used: ${output.tokensUsed}*`;
   }
 
-  return formatted;
+  return appendAffectedSourceExcerpts(output, formatted);
 }
 
 export function formatCodexResponseForMCP(

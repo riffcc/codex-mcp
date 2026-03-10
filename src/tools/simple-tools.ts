@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { UnifiedTool } from './registry.js';
 import { executeCommand } from '../utils/commandExecutor.js';
+import { CLI } from '../constants.js';
 
 const pingArgsSchema = z.object({
   prompt: z.string().default('').describe('Message to echo '),
@@ -32,7 +33,7 @@ export const helpTool: UnifiedTool = {
   },
   category: 'simple',
   execute: async (args, onProgress) => {
-    return executeCommand('codex', ['--help'], onProgress);
+    return executeCommand(CLI.COMMANDS.CODEX, ['--help'], onProgress);
   },
 };
 
@@ -48,7 +49,7 @@ export const versionTool: UnifiedTool = {
   category: 'simple',
   execute: async (args, onProgress) => {
     try {
-      const codexVersion = await executeCommand('codex', ['--version'], onProgress);
+      const codexVersion = await executeCommand(CLI.COMMANDS.CODEX, ['--version'], onProgress);
       const nodeVersion = process.version;
       const platform = process.platform;
 

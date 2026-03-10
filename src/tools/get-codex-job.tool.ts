@@ -1,38 +1,49 @@
 import { z } from 'zod';
 import { UnifiedTool } from './registry.js';
-import { getJobSnapshot, waitForJobUpdate } from '../utils/jobManager.js';
+import { getJobSnapshot, getJobSnapshotForThread, waitForJobUpdate } from '../utils/jobManager.js';
 
-const getCodexJobArgsSchema = z.object({
-  jobId: z.string().min(1).describe('Async job ID returned by ask-codex with async=true'),
-  sinceSeq: z.number().int().min(0).default(0).describe('Return updates with seq > sinceSeq'),
-  waitMs: z
-    .number()
-    .int()
-    .min(0)
-    .default(0)
-    .describe('Long-poll duration in milliseconds'),
-  includeResult: z
-    .boolean()
-    .default(true)
-    .describe('Include final result payload when job is completed'),
-});
+const getCodexJobArgsSchema = z
+  .object({
+    jobId: z.string().min(1).optional().describe('Async job ID to inspect'),
+    threadId: z.string().min(1).optional().describe('Codex thread ID to inspect via its latest known job'),
+    sinceSeq: z.number().int().min(0).default(0).describe('Return updates with seq > sinceSeq'),
+    waitMs: z
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe('Long-poll duration in milliseconds'),
+    includeResult: z
+      .boolean()
+      .default(true)
+      .describe('Include final result payload when job is completed'),
+  })
+  .refine(args => !!args.jobId || !!args.threadId, {
+    message: 'Provide either jobId or threadId',
+  });
 
 export const getCodexJobTool: UnifiedTool = {
   name: 'get-codex-job',
   description:
-    'Retrieve status and incremental output for async ask-codex jobs. Supports long-polling and sequence-based updates.',
+    'Retrieve status and incremental output for Codex work by jobId or threadId. Supports long-polling and sequence-based updates.',
   zodSchema: getCodexJobArgsSchema,
   category: 'utility',
   execute: async args => {
-    const { jobId, sinceSeq = 0, waitMs = 0, includeResult = true } = args as any;
+    const { jobId, threadId, sinceSeq = 0, waitMs = 0, includeResult = true } = args as any;
+    const lookupByThread = typeof threadId === 'string' && threadId.trim().length > 0;
+    const lookupKey = lookupByThread ? (threadId as string) : (jobId as string);
 
     const snapshot =
-      waitMs > 0
+      waitMs > 0 && !lookupByThread
         ? await waitForJobUpdate(jobId as string, sinceSeq as number, waitMs as number)
-        : getJobSnapshot(jobId as string, sinceSeq as number);
+        : lookupByThread
+          ? getJobSnapshotForThread(threadId as string, sinceSeq as number)
+          : getJobSnapshot(jobId as string, sinceSeq as number);
 
     if (!snapshot) {
-      return `❌ Unknown jobId: ${jobId}`;
+      return lookupByThread
+        ? `❌ Unknown threadId: ${lookupKey}`
+        : `❌ Unknown jobId: ${lookupKey}`;
     }
 
     const { job, updates, latestSeq } = snapshot;
@@ -51,6 +62,9 @@ export const getCodexJobTool: UnifiedTool = {
     if (job.threadId) {
       lines.push(`threadId: ${job.threadId}`);
     }
+    if (lookupByThread) {
+      lines.push('resolvedVia: threadId');
+    }
     if (job.metadata && Object.keys(job.metadata).length > 0) {
       lines.push(`metadata: ${JSON.stringify(job.metadata)}`);
     }
@@ -68,10 +82,6 @@ export const getCodexJobTool: UnifiedTool = {
 
     if (includeResult && job.status === 'succeeded') {
       lines.push('', 'result:', job.result || '');
-    }
-
-    if (job.threadId) {
-      lines.push('', `resumeHint: call ask-codex with { "threadId": "${job.threadId}", "prompt": "<next prompt>" }`);
     }
 
     return lines.join('\n');
